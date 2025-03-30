@@ -1,296 +1,317 @@
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
 import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Scanner;
-
+import java.util.*;
+/**
+ * This class calculates the gross and net weekly salary for employees based on their worked hours.
+ * It reads employee details and attendance records from CSV files, allows user to select an employee,
+ * and calculates their salary considering regular and overtime hours with a fixed overtime rate.
+ * Key features:
+ * - Reads employee data from CSV files
+ * - Processes weekly attendance records
+ * - Interactive employee selection
+ * - Salary calculation with overtime pay
+ * - Handles potential file and parsing errors
+ */
 public class GrossNetWeeklySalary {
+    // Overtime rate multiplier (1.25 = time and a quarter)
+    private static final double OVERTIME_RATE = 1.25;
 
+    // Main method - program entry point
     public static void main(String[] args) {
-        String employeeDataFile = "src/MotorPH Employee Data.csv";
-        String attendanceFile = "src/MotorPH Employee attendance record.csv";
-        Map<String, String[]> employeeDetailsMap = new HashMap<>();
-
-        // Read employee details
-        try (BufferedReader br = new BufferedReader(new FileReader(employeeDataFile))) {
-            String line;
-            br.readLine(); // Skip header
-            while ((line = br.readLine()) != null) {
-                String[] data = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1);
-                for (int i = 0; i < data.length; i++) {
-                    data[i] = data[i].replace("\"", "").trim();
-                }
-                employeeDetailsMap.put(data[0], data);
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-
-        Scanner scanner = new Scanner(System.in);
-        System.out.print("Enter employee ID: ");
-        String inputEmployeeId = scanner.nextLine().trim();
-
-        // Check if employee exists
-        String[] empDetails = employeeDetailsMap.get(inputEmployeeId);
-        if (empDetails == null) {
-            System.out.println("Employee not found.");
-            scanner.close();
-            return;
-        }
-
-        WeeklyWorkedHours.calculateHours(attendanceFile);
-
-        // Display employee details first
-        displayEmployeeDetails(empDetails);
-
-        System.out.println("\nEmployee Weekly Salary (Note : Pick a month and point out any date within the chosen week.)");
-        System.out.print("Enter date (MM/dd/yyyy): ");
-        String inputDateStr = scanner.nextLine().trim();
-
         try {
-            SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
-            Date inputDate = dateFormat.parse(inputDateStr);
+            // Read employee details and process attendance records
+            Map<String, String[]> employees = EmployeeDetails.readEmployeeDetails("src/MotorPH Employee Data.csv");
+            WeeklyWorkedHours.processAttendanceFile("src/MotorPH Employee attendance record.csv");
 
-            WeeklyWorkedHours.calculateMonthlyHours();
+            // Get employee ID from user input
+            Scanner scanner = new Scanner(System.in);
+            String employeeId = promptEmployeeId(scanner, employees);
+            if (employeeId == null) return;
 
-            // 2. Generate month key (employeeId_YYYY-MM)
-            Calendar monthCal = Calendar.getInstance();
-            monthCal.setTime(inputDate);
-            int year = monthCal.get(Calendar.YEAR);
-            int month = monthCal.get(Calendar.MONTH) + 1;
-            String monthKey = String.format("%s_%04d-%02d", inputEmployeeId, year, month);
+            // Display employee details and calculate salary
+            displayEmployeeDetails(employees.get(employeeId));
+            processSalaryCalculation(scanner, employeeId, employees.get(employeeId));
 
-            // 3. Get monthly hours from maps
-            Double monthlyRegular = WeeklyWorkedHours.monthlyHoursMap.get(monthKey);
-            Double monthlyOvertime = WeeklyWorkedHours.monthlyOvertimeMap.get(monthKey);
-            Double monthlyUnderTime = WeeklyWorkedHours.monthlyUnderTimeMap.get(monthKey);
-            Double monthlyLateTime = WeeklyWorkedHours.monthlyLatetimeMap.get(monthKey);
-
-            Calendar cal = Calendar.getInstance();
-            cal.setTime(inputDate);
-            cal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY);
-            String weekKey = inputEmployeeId + "_" + dateFormat.format(cal.getTime());
-
-            Double regularHours = WeeklyWorkedHours.weeklyHoursMap.get(weekKey);
-            Double overtimeHours = WeeklyWorkedHours.weeklyOvertimeMap.get(weekKey);
-            Double weeklyUnderTime = WeeklyWorkedHours.weeklyUndertimeMap.get(weekKey);
-            Double weeklyLateTime = WeeklyWorkedHours.weeklyLatetimeMap.get(weekKey);
-
-            // Get financial data from employee details
-            double hourlyRate = Double.parseDouble(empDetails[empDetails.length - 1].replace(",", ""));
-            double basicSalary = Double.parseDouble(empDetails[empDetails.length - 6].replace(",", ""));
-            double riceSubsidy = Double.parseDouble(empDetails[14].replace(",", ""));
-            double phoneAllowance = Double.parseDouble(empDetails[15].replace(",", ""));
-            double clothingAllowance = Double.parseDouble(empDetails[16].replace(",", ""));
-
-            // Calculate SSS contribution based on monthly basic salary
-            double sssContribution = calculateSSSContribution(basicSalary);
-            double taxRate= calculateTaxRate(basicSalary);
-
-            // Monthly allowance
-            double totalAllowance = (riceSubsidy + phoneAllowance + clothingAllowance);
-
-            // government deduction
-            double philHealth =  (basicSalary * 0.03) /2 ;
-            double pagIbig = 100.00;
-
-
-            if (regularHours == null || overtimeHours == null) {
-                System.out.println("No attendance data found for employee " + inputEmployeeId);
-                System.out.println("Or You entered invalid Date Format " + inputEmployeeId);
-            } else {
-
-                double OVERTIME_RATE_MULTIPLIER = 1.25;
-                double underTime = weeklyUnderTime * hourlyRate;
-                double basicPay = (basicSalary / 4);
-                double late = weeklyLateTime * hourlyRate;
-                double overtimePay = overtimeHours * hourlyRate * OVERTIME_RATE_MULTIPLIER;
-                double monthlyLatePay = monthlyLateTime * hourlyRate;
-                double monthlyUnderTimePay = monthlyUnderTime * hourlyRate;
-                double monthlyOverTimePay = monthlyOvertime * hourlyRate;
-                double grossMonthlyIncome = basicSalary + totalAllowance + overtimePay;
-                double monthlyAllowance = (riceSubsidy + phoneAllowance + clothingAllowance);
-                double grossWeekly = ((basicPay - late - underTime) + overtimePay);
-                double totalWeeklySalary = grossWeekly - sssContribution - philHealth - pagIbig;
-                double grossMonthly = ((basicPay - late - underTime) + overtimePay + totalAllowance);
-                double totalMandatoryDeductions = sssContribution + philHealth + pagIbig;
-                double totalMonthlyDeductions = grossMonthly - totalMandatoryDeductions;
-
-                boolean isLastWeekOfMonth = isLastWeekOfMonth(inputDate);
-                double philhealth = 0.0;
-                sssContribution = 0.0;
-                double pagibigEmployee = 0.0;
-                double totalDeductions = 0.0;
-                double monthlyTaxableIncome = 0.0;
-                taxRate = 0.0;
-                double totalPay = 0.0;
-
-
-                if (isLastWeekOfMonth) {
-                    pagibigEmployee = 100.00;
-                    sssContribution = calculateSSSContribution(basicSalary);
-                    philhealth = (basicSalary * 0.03) / 2;
-                    totalDeductions = (monthlyLatePay + monthlyUnderTimePay + sssContribution + philhealth + pagibigEmployee);
-                    monthlyTaxableIncome = grossMonthlyIncome - totalDeductions;
-                    taxRate = calculateTaxRate(monthlyTaxableIncome);
-                    totalPay = totalMonthlyDeductions - calculateTaxRate(monthlyTaxableIncome);
-                }
-
-                /* 4. Print monthly hours
-                if (monthlyRegular != null && monthlyOvertime != null && monthlyUnderTime != null) {
-                    System.out.println("\nMonthly Worked Hours (Aggregated):");
-                    System.out.printf("Regular Hours: %.2f hrs%n", monthlyRegular);
-                    System.out.printf("Overtime Hours: %.2f hrs%n", monthlyOvertime);
-                    System.out.printf("Under Time Hours: %.2f hrs%n", monthlyUnderTime);
-                    System.out.printf("Late Time Hours: %.2f hrs%n", monthlyLateTime);
-                }
-                 */
-
-                // Actual weekly Hours
-                System.out.printf("%-20s: %.2f hrs%n", "Actual Worked Hours", regularHours);
-                System.out.printf("%-20s: %.2f hrs%n", "Actual Overtime", overtimeHours);
-                System.out.printf("%-20s: %.2f hrs%n", "Actual Under Time", weeklyUnderTime);
-                System.out.printf("%-20s: %.2f hrs%n", "Actual Late Time", weeklyLateTime);
-
-                System.out.printf("\nTotal salary for employee %s (Week of %s):%n", inputEmployeeId, dateFormat.format(cal.getTime()));
-                System.out.printf("%-20s: PHP %,.2f%n", "+Basic Pay", basicPay);
-                System.out.printf("%-20s: PHP %,.2f%n", "-Late", late);
-                System.out.printf("%-20s: PHP %,.2f%n", "-Under time", underTime);
-                System.out.printf("%-20s: PHP %,.2f%n", "+Over Time", overtimePay);
-
-                if (isLastWeekOfMonth) {
-
-                    System.out.printf("%-20s: PHP %,.2f%n", "+Monthly Allowance", monthlyAllowance);
-
-                } else {
-
-                    System.out.printf("%-20s: PHP %,.2f%n", "+Monthly Allowance",0.0);
-                }
-
-
-
-
-
-                System.out.println("\nDeductions:");
-                System.out.printf("%-28s: PHP %,.2f%n", "- SSS Contribution", sssContribution);
-                System.out.printf("%-28s: PHP %,.2f%n", "- PhilHealth Contribution", philhealth);
-                System.out.printf("%-28s: PHP %,.2f%n", "- Pag-ibig Contribution",  pagibigEmployee);
-                System.out.printf("%-28s: PHP %,.2f%n", "- Withholding Tax",  taxRate);
-                System.out.println("-".repeat(44));
-
-
-                if (isLastWeekOfMonth) {
-
-                    System.out.printf("\n%-28s: PHP %,.2f%n", "Take Home Pay",  totalPay);
-                    System.out.println("═".repeat(44));
-
-                } else {
-
-
-                    System.out.printf("\nTake Home Pay             : PHP %,.2f%n", grossWeekly);
-                    System.out.println("═".repeat(44));
-                }
-
-
-                if (isLastWeekOfMonth) {
-                     /* Computation for gross monthly income, taxable income , monthly deduction, withholding tax.
-
-                    System.out.printf("\n+ Monthly Basic salary    : PHP %,.2f%n", basicSalary);
-                    System.out.printf("+ Monthly Over Time       : PHP %,.2f%n", monthlyOverTimePay);
-                    System.out.printf("+ Monthly Allowance       : PHP %,.2f%n", totalAllowance);
-                    System.out.println("-".repeat(44));
-                    System.out.printf("  Gross Monthly Income    : PHP %,.2f%n", grossMonthlyIncome);
-                    System.out.println("\nDeductions (Last Week of the Month):");
-                    System.out.printf("- Monthly Late            : PHP %,.2f%n", monthlyLatePay);
-                    System.out.printf("- Monthly Under Time      : PHP %,.2f%n", monthlyUnderTimePay);
-                    System.out.printf("- SSS Contribution        : PHP %,.2f%n", sssContribution);
-                    System.out.printf("- PhilHealth Contribution : PHP %,.2f%n", philhealth);
-                    System.out.printf("- Pag-ibig Contribution   : PHP %,.2f%n", pagibigEmployee);
-                    System.out.println("-".repeat(44));
-                    System.out.printf("Total Deductions          : PHP %,.2f%n", totalDeductions);
-                    System.out.printf("Monthly Taxable Income    : PHP %,.2f%n", monthlyTaxableIncome);
-                    System.out.printf("Withholding Tax           : PHP %,.2f%n", taxRate);
-
-                      */
-
-
-                } else {
-                    System.out.println("\nNo deductions applied (Not the last week of the month).");
-                }
-
-
-            }
-        } catch (ParseException | NumberFormatException e) {
-            System.out.println(e instanceof ParseException
-                    ? "Invalid date format. Use MM/dd/yyyy."
-                    : "Error parsing financial data");
+        } catch (IOException | ParseException e) {
+            System.err.println("Error: " + e.getMessage());
         }
+    }
 
+    private static String promptEmployeeId(Scanner scanner, Map<String, String[]> employees) {
+        System.out.print("Enter employee ID: ");
+        String id = scanner.nextLine().trim();
+        if (!employees.containsKey(id)) {
+            System.out.println("Employee not found.");
+            return null;
+        }
+        return id;
+    }
+
+    /**
+     * Displays the details of an employee by delegating to {@link EmployeeDetails#displayEmployeeDetails(String[])}.
+     * This method serves as a wrapper to maintain consistent access to employee data display functionality.
+     *
+     * @param empData An array of Strings containing the employee's details in the following order:
+     *                [0] - Employee ID
+     *                [1] - Last Name
+     *                [2] - First Name
+     *                ... (other employee attributes)
+     * @throws NullPointerException if empData is null
+     */
+    private static void displayEmployeeDetails(String[] empData) {
+        EmployeeDetails.displayEmployeeDetails(empData);
+    }
+
+    /**
+     * Prompts the user to enter an employee ID and checks if it exists in the system.
+     *
+     * @param scanner   The Scanner object for reading user input.
+     * @param employeeId  A Map containing employee data with IDs as keys.
+     * @return The validated employee ID if found, otherwise null.
+     */
+    private static void processSalaryCalculation(Scanner scanner, String employeeId, String[] empData)
+            throws ParseException {
+        Date inputDate = getInputDate(scanner);
+
+        // Calculate salary based on employee data and input date
+        SalaryData salaryData = calculateSalary(empData, inputDate);
+        salaryData.isLastWeek = DateUtils.isLastWeekOfMonth(inputDate);
+
+        // Check if this is the last week of the month for special deductions
+        if (salaryData.isLastWeek) {
+            applyMonthlyDeductions(empData, salaryData);
+        } else {
+            // For non-last weeks, net pay equals gross pay (no deductions)
+            salaryData.netPay = salaryData.grossWeekly;
+        }
+        // Display the calculated salary results to the user
+        displayResults(salaryData);
+        // Close the scanner to prevent resource leaks
         scanner.close();
     }
-
-    private static void displayEmployeeDetails(String[] emp) {
-        System.out.println("\nEmployee Details:");
-        System.out.printf("%-30s: %s%n", "Employee #", emp[0]);
-        System.out.printf("%-30s: %s%n", "Last Name", emp[1]);
-        System.out.printf("%-30s: %s%n", "First Name", emp[2]);
-        System.out.printf("%-30s: %s%n", "Birthday", emp[3]);
-        System.out.printf("%-30s: %s%n", "Address", emp[4]);
-        System.out.printf("%-30s: %s%n", "Phone Number", emp[5]);
-        System.out.printf("%-30s: %s%n", "SSS #", emp[6]);
-        System.out.printf("%-30s: %s%n", "Philhealth #", emp[7]);
-        System.out.printf("%-30s: %s%n", "TIN #", emp[8]);
-        System.out.printf("%-30s: %s%n", "Pag-ibig #", emp[9]);
-        System.out.printf("%-30s: %s%n", "Status", emp[10]);
-        System.out.printf("%-30s: %s%n", "Position", emp[11]);
-        System.out.printf("%-30s: %s%n", "Immediate Supervisor", emp[12]);
-        System.out.printf("%-30s: %s%n", "Basic Salary", emp[13]);
-        System.out.printf("%-30s: %s%n", "Rice Subsidy", emp[14]);
-        System.out.printf("%-30s: %s%n", "Phone Allowance", emp[15]);
-        System.out.printf("%-30s: %s%n", "Clothing Allowance", emp[16]);
-        System.out.printf("%-30s: %s%n", "Gross Semi-monthly Rate", emp[17]);
-        System.out.printf("%-30s: %s%n", "Hourly Rate", emp[18]);
-        System.out.println("______________________");
+    /**
+     * Prompts the user to input a date and parses it into a Date object.
+     * Accepts multiple date formats for flexibility.
+     *
+     * @param scanner The Scanner object used to read user input
+     * @return A parsed Date object representing the user's input
+     * @throws ParseException If the input string cannot be parsed into a valid date
+     *                      using the supported formats
+     *
+     * @see DateUtils#parseDate(String, String...)
+     *
+     * Example usage:
+     * <pre>
+     * {@code
+     * // Will accept either "12/31/2023" or "12-31-2023"
+     * Date payDate = getInputDate(scanner);
+     * }
+     * </pre>
+     *
+     * Supported formats:
+     * - MM/dd/yyyy (e.g., 12/31/2023)
+     * - MM-dd-yyyy (e.g., 12-31-2023)
+     */
+    private static Date getInputDate(Scanner scanner) throws ParseException {
+        System.out.print("\nEnter date (MM/dd/yyyy or MM-dd-yyyy): ");
+        return DateUtils.parseDate(scanner.nextLine(), "MM/dd/yyyy", "MM-dd-yyyy");
     }
+    /**
+     * Calculates weekly salary components for an employee including:
+     * - Basic pay (1/4 of monthly salary)
+     * - Overtime pay (time and a quarter)
+     * - Deductions for late/underTime hours
+     * - Gross weekly pay
+     *
+     * @param empData Employee data array containing financial information
+     * @param inputDate Date used to determine the work week
+     * @return SalaryData object containing all calculated salary components
+     * @throws RuntimeException if financial data in empData is improperly formatted
+     */
+    static SalaryData calculateSalary(String[] empData, Date inputDate) {
+        SalaryData data = new SalaryData();
+        String weekKey = DateUtils.getWeekKey(inputDate, empData[EmployeeDetails.IDX_EMPLOYEE_ID]);
+        data.isLastWeek = DateUtils.isLastWeekOfMonth(inputDate);
 
-    private static boolean isLastWeekOfMonth(Date date) {
-        Calendar cal = Calendar.getInstance();
-        cal.setTime(date);
-        int lastDayOfMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH);
-        int currentDay = cal.get(Calendar.DAY_OF_MONTH);
-        return currentDay > (lastDayOfMonth - 7);
-    }
+        try {
+            data.hourlyRate = Double.parseDouble(empData[EmployeeDetails.IDX_HOURLY_RATE].replace(",", ""));
+            data.basicSalary = Double.parseDouble(empData[EmployeeDetails.IDX_BASIC_SALARY].replace(",", ""));
+            data.riceSubsidy = Double.parseDouble(empData[EmployeeDetails.IDX_RICE_SUBSIDY].replace(",", ""));
+            data.phoneAllowance = Double.parseDouble(empData[EmployeeDetails.IDX_PHONE_ALLOWANCE].replace(",", ""));
+            data.clothingAllowance = Double.parseDouble(empData[EmployeeDetails.IDX_CLOTHING_ALLOWANCE].replace(",", ""));
 
-    public static double calculateSSSContribution(double totalSalary) {
-        if (totalSalary < 3250) return 135.0;
-        int steps = Math.min((int) ((totalSalary - 3250) / 500) + 1, 44);
-        return 135.0 + steps * 22.50;
-    }
+            data.regularHours = WeeklyWorkedHours.weeklyHours.getOrDefault(weekKey, 0.0);
+            data.overtimeHours = WeeklyWorkedHours.weeklyOvertime.getOrDefault(weekKey, 0.0);
+            data.underTime = WeeklyWorkedHours.weeklyUnderTime.getOrDefault(weekKey, 0.0);
+            data.lateHours = WeeklyWorkedHours.weeklyLateTime.getOrDefault(weekKey, 0.0);
 
-    public static double calculateTaxRate(double grossSalary) {
-        if (grossSalary <= 20832) {
-            return 0.0; // No tax for salaries below or equal to 20,832
-        } else if (grossSalary > 20833 && grossSalary <= 33333) {
-            return (grossSalary - 20833) * 0.20; // 20% tax for this bracket
-        } else if (grossSalary > 33333 && grossSalary <= 66667) {
-            return ((grossSalary - 33333) * 0.25) + 2500; // 25% tax for this bracket + fixed amount
-        } else if (grossSalary > 66667 && grossSalary <= 166667) {
-            return ((grossSalary- 66667) * 0.30) + 10833; // 30% tax for this bracket + fixed amount
-        } else if (grossSalary > 166667 && grossSalary <= 666667) {
-            return ((grossSalary - 166667) * 0.32) + 40833.33; // 32% tax for this bracket + fixed amount
-        } else if (grossSalary > 666667) {
-            return ((grossSalary - 666667) * 0.35) + 200833.33; // 35% tax for this bracket + fixed amount
-        } else {
-            return 0.0; // Default case (should not be reached)
+            // Core calculations
+            data.basicPay = data.basicSalary / 4;
+            data.lateDeduction = data.lateHours * data.hourlyRate;
+            data.underTimeDeduction = data.underTime * data.hourlyRate;
+            data.overtimePay = data.overtimeHours * data.hourlyRate * OVERTIME_RATE;
+            data.grossWeekly = data.basicPay - data.lateDeduction - data.underTimeDeduction + data.overtimePay;
+
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("Invalid financial data format in employee record", e);
         }
+        return data;
     }
 
+    private static void applyMonthlyDeductions(String[] empData, SalaryData data) {
+        // Add monthly allowance to gross pay
+        double totalAllowance = data.riceSubsidy + data.phoneAllowance + data.clothingAllowance;
+        data.grossWeekly += totalAllowance / 4;
 
+        // Calculate deductions
+        data.sss = DeductionsCalculator.calculateSSS(data.basicSalary);
+        data.philhealth = DeductionsCalculator.calculatePhilHealth(data.basicSalary);
+        data.pagibig = DeductionsCalculator.PAG_IBIG_EMPLOYEE;
+
+        double taxableIncome = data.basicSalary - (data.sss + data.philhealth + data.pagibig);
+        data.tax = DeductionsCalculator.calculateTax(taxableIncome);
+
+        data.totalDeductions = data.sss + data.philhealth + data.pagibig + data.tax;
+        data.netPay = data.grossWeekly - data.totalDeductions;
+    }
+    /**
+     * Applies monthly deductions and allowances to the salary calculation.
+     * This method is specifically called for the last week of each month to process:
+     * - Monthly allowance pro-rating
+     * - Mandatory government deductions (SSS, PhilHealth, Pag-IBIG)
+     * - Income tax calculation
+     * - Net pay computation
+     *
+     * @param data SalaryData object to be modified with deductions and final net pay
+     *
+     * @implNote The method:
+     * 1. Adds 1/4 of monthly allowances (rice, phone, clothing) to gross pay
+     * 2. Calculates mandatory deductions
+     * 3. Computes taxable income after deductions
+     * 4. Calculates withholding tax
+     * 5. Determines final net pay
+     */
+    private static void displayResults(SalaryData data) {
+        System.out.println("\nAttendance Summary:");
+        System.out.printf("%-25s: %.2f hrs%n", "Regular Hours", data.regularHours);
+        System.out.printf("%-25s: %.2f hrs%n", "Over time Hours", data.overtimeHours);
+        System.out.printf("%-25s: %.2f hrs%n", "Under time Hours", data.underTime);
+        System.out.printf("%-25s: %.2f hrs%n", "Late Hours", data.lateHours);
+
+        System.out.println("\nSalary Breakdown:");
+        System.out.printf("%-25s: PHP %,.2f%n", "Basic Pay", data.basicPay);
+        System.out.printf("%-25s: PHP %,.2f%n", "Late Deduction", data.lateDeduction);
+        System.out.printf("%-25s: PHP %,.2f%n", "Under time Deduction", data.underTimeDeduction);
+        System.out.printf("%-25s: PHP %,.2f%n", "Overtime Pay", data.overtimePay);
+
+        // Only display monthly allowances during the last week payroll processing
+        if (data.isLastWeek) {
+            // Calculate sum of all monthly allowances
+            double totalAllowance = data.riceSubsidy + data.phoneAllowance + data.clothingAllowance;
+            // Format and display the total monthly allowance with:
+            // - Left-aligned 25-character label
+            // - Philippine Peso currency format
+            // - 2 decimal places
+            // - Thousands separator
+            System.out.printf("%-25s: PHP %,.2f%n", "Monthly Allowance", totalAllowance);
+        }
+
+        /*
+          Displays all applicable deductions for the payroll period.
+          For last week of month: Shows full breakdown of government deductions and tax.
+          For regular weeks: Indicates no deductions are applied.
+
+          @param data SalaryData object containing:
+         *            - isLastWeek: Flag indicating if processing last week
+         *            - sss: SSS deduction amount
+         *            - philhealth: PhilHealth deduction amount
+         *            - pagibig: Pag-IBIG deduction amount
+         *            - tax: Withholding tax amount
+         */
+        System.out.println("\nDeductions:");
+        if (data.isLastWeek) {
+            System.out.printf("%-25s: PHP %,.2f%n", "SSS", data.sss);
+            System.out.printf("%-25s: PHP %,.2f%n", "PhilHealth", data.philhealth);
+            System.out.printf("%-25s: PHP %,.2f%n", "Pag-ibig", data.pagibig);
+            System.out.printf("%-25s: PHP %,.2f%n", "Withholding Tax", data.tax);
+        } else {
+            System.out.println("No deductions applied for non-last week");
+        }
+
+        System.out.println("\n" + "=".repeat(50));
+        System.out.printf("%-25s: PHP %,.2f%n", "NET PAY", data.netPay);
+        System.out.println("=".repeat(50));
+    }
+
+    /**
+     * Represents all salary-related data for payroll processing.
+     * Contains three categories of fields:
+     * 1. Input values from employee records
+     * 2. Calculated salary components
+     * 3. Deductions and net pay information
+     */
+    static class SalaryData {
+        // --- Input Values ---
+        /** Hourly wage rate for the employee */
+        double hourlyRate;
+        /** Monthly base salary before deductions */
+        double basicSalary;
+        /** Monthly rice subsidy allowance */
+        double riceSubsidy;
+        /** Monthly phone allowance */
+        double phoneAllowance;
+        /** Monthly clothing allowance */
+        double clothingAllowance;
+
+        // --- Calculated Values ---
+        /** Regular hours worked in the week */
+        double regularHours;
+
+        /** Overtime hours worked in the week */
+        double overtimeHours;
+
+        /** Total underTime hours for the week */
+        double underTime;
+
+        /** Total late hours for the week */
+        double lateHours;
+
+        /** Weekly basic pay (basicSalary / 4) */
+        double basicPay;
+
+        /** Deduction for late arrivals */
+        double lateDeduction;
+
+        /** Deduction for underTime */
+        double underTimeDeduction;
+
+        /** Overtime pay (overtimeHours * hourlyRate * 1.25) */
+        double overtimePay;
+
+        /** Gross weekly pay before deductions */
+        double grossWeekly;
+
+        // --- Deductions ---
+        /** SSS (Social Security System) contribution */
+        double sss;
+
+        /** PhilHealth health insurance contribution */
+        double philhealth;
+
+        /** Pag-IBIG (HDMF) housing fund contribution */
+        double pagibig;
+
+        /** Withholding tax amount */
+        double tax;
+
+        /** Sum of all deductions */
+        double totalDeductions;
+
+        /** Final take-home pay after all deductions */
+        double netPay;
+
+        // --- Flags ---
+        /** Indicates if processing the last week of the month */
+        boolean isLastWeek;
+    }
 }
-
